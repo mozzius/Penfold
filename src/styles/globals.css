@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter";
+}
+
+@supports (font-variation-settings: normal) {
+  :root {
+    --font-sans: "Inter var";
+  }
+}
