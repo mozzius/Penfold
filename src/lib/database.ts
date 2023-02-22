@@ -5,9 +5,14 @@ class DB {
   private database: Database | null = null;
 
   constructor(name: string = "emails.db") {
-    this.ready = Database.load(`sqlite:${name}`).then((database) => {
-      this.database = database;
-    });
+    this.ready = Database.load(`sqlite:${name}`)
+      .then((database) => {
+        console.log("database loaded", database);
+        return this.setup(database);
+      })
+      .then((database) => {
+        this.database = database;
+      });
   }
 
   async getDatabase() {
@@ -15,8 +20,7 @@ class DB {
     return this.database as Database;
   }
 
-  async setup() {
-    const db = await this.getDatabase();
+  async setup(db: Database) {
     await db.execute(
       `CREATE TABLE IF NOT EXISTS accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,10 +43,13 @@ class DB {
         date TEXT NOT NULL
       )`
     );
+    console.info("Database ready");
+    return db;
   }
 
   async execute(query: string, params: any[] = []) {
     const db = await this.getDatabase();
+    console.log("executing query", query, params);
     return await db.execute(query, params);
   }
 

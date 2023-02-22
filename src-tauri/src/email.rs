@@ -1,41 +1,61 @@
 extern crate imap;
 
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::ConnectOptions;
+use std::str::FromStr;
+
 pub struct ConnectionDetails {
+    account_id: i64,
     name: String,
     email: String,
     password: String,
     imap_server: String,
-    imap_port: u16,
+    imap_port: i64,
     smtp_server: String,
-    smtp_port: u16,
+    smtp_port: i64,
 }
 
-pub async fn connect(account_id: i32) -> ConnectionDetails {
-    let conn = sqlx::SqliteConnection::connect("sqlite::memory:").await?;
+async fn get_conn(database: &str) -> sqlx::SqliteConnection {
+    SqliteConnectOptions::from_str(database)
+        .unwrap()
+        .journal_mode(SqliteJournalMode::Wal)
+        .read_only(true)
+        .connect()
+        .await
+        .unwrap()
+}
+
+pub async fn connect(database: &str, account_id: i64) -> ConnectionDetails {
+    let mut conn = get_conn(database).await;
     let account = sqlx::query!("SELECT * FROM accounts WHERE id = $1", account_id)
-        .fetch_one()
+        .fetch_one(&mut conn)
         .await
         .unwrap();
 
     ConnectionDetails {
+        account_id: account.id,
         name: account.name,
         email: account.email,
         password: account.password,
-        imap_server: account.imap_server,
+        imap_server: account.imap_host,
         imap_port: account.imap_port,
-        smtp_server: account.smtp_server,
+        smtp_server: account.smtp_host,
         smtp_port: account.smtp_port,
     }
 }
 
-pub fn get_emails(details: ConnectionDetails) -> imap::error::Result<Option<String>> {
+pub async fn get_emails(
+    database: &str,
+    details: ConnectionDetails,
+) -> imap::error::Result<Option<String>> {
     let domain = details.imap_server;
-    let client = imap::ClientBuilder::new(&host, port).rustls()?;
+    let client = imap::ClientBuilder::new(domain, details.imap_port.try_into().unwrap())
+        .starttls()
+        .native_tls()
+        .expect("Could not connect to server");
 
     // the client we have here is unauthenticated.
     // to do anything useful with the e-mails, we need to log in
-    let mut imap_session = client.login(&user, &password).map_err(|e| e.0)?;
-
     let mut imap_session = client
         .login(details.email, details.password)
         .map_err(|e| e.0)?;
@@ -60,6 +80,17 @@ pub fn get_emails(details: ConnectionDetails) -> imap::error::Result<Option<Stri
 
     // be nice to the server and log out
     imap_session.logout()?;
+
+    let mut conn = get_conn(database).await;
+
+    sqlx::query!(
+        "INSERT INTO emails (account, body) VALUES ($1, $2)",
+        details.account_id,
+        body
+    )
+    .execute(&mut conn)
+    .await
+    .unwrap();
 
     Ok(Some(body))
 }
